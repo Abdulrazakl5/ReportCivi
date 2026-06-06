@@ -1,0 +1,83 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: reportcivi_db
+    environment:
+      POSTGRES_USER: reportcivi
+      POSTGRES_PASSWORD: secure_password_change_me
+      POSTGRES_DB: reportcivi
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - reportcivi_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reportcivi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: reportcivi_cache
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - reportcivi_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: reportcivi_backend
+    environment:
+      DATABASE_URL: postgresql://reportcivi:secure_password_change_me@postgres:5432/reportcivi
+      REDIS_URL: redis://redis:6379
+      FLASK_ENV: development
+      SECRET_KEY: your_secret_key_here
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    networks:
+      - reportcivi_network
+    command: python run.py
+
+  frontend:
+    build:
+      context: ./frontend/web
+      dockerfile: Dockerfile
+    container_name: reportcivi_frontend
+    environment:
+      REACT_APP_API_URL: http://localhost:5000/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend/web/src:/app/src
+    networks:
+      - reportcivi_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  reportcivi_network:
+    driver: bridge
